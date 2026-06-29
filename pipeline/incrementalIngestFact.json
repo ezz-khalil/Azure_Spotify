@@ -1,9 +1,9 @@
 {
-	"name": "incrementalIngest",
+	"name": "incrementalIngestFact",
 	"properties": {
 		"activities": [
 			{
-				"name": "ingest bronze",
+				"name": "ingest fact",
 				"type": "Copy",
 				"dependsOn": [
 					{
@@ -128,7 +128,7 @@
 				"type": "IfCondition",
 				"dependsOn": [
 					{
-						"activity": "ingest bronze",
+						"activity": "ingest fact",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -275,6 +275,9 @@
 			"current_timestamp": {
 				"type": "String"
 			}
+		},
+		"folder": {
+			"name": "Bronze"
 		},
 		"annotations": []
 	}
