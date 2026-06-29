@@ -1,9 +1,9 @@
 {
-	"name": "incrementalDimArtist",
+	"name": "incrementalDimUser",
 	"properties": {
 		"activities": [
 			{
-				"name": "get last updated",
+				"name": "get last date",
 				"type": "Lookup",
 				"dependsOn": [],
 				"policy": {
@@ -27,13 +27,14 @@
 						}
 					},
 					"dataset": {
-						"referenceName": "Json2",
+						"referenceName": "lookupAsofDateUser",
 						"type": "DatasetReference"
-					}
+					},
+					"firstRowOnly": false
 				}
 			},
 			{
-				"name": "set timestamp",
+				"name": "Set current timestamp",
 				"type": "SetVariable",
 				"dependsOn": [],
 				"policy": {
@@ -50,17 +51,17 @@
 				}
 			},
 			{
-				"name": "ingestDimArtist",
+				"name": "ingest DimUser",
 				"type": "Copy",
 				"dependsOn": [
 					{
-						"activity": "get last updated",
+						"activity": "get last date",
 						"dependencyConditions": [
 							"Succeeded"
 						]
 					},
 					{
-						"activity": "set timestamp",
+						"activity": "Set current timestamp",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -78,7 +79,7 @@
 					"source": {
 						"type": "AzureSqlSource",
 						"sqlReaderQuery": {
-							"value": "select artist_id,\nartist_name,\ngenre,\ncountry,\nupdated_at\nfrom dbo.DimArtist\nwhere updated_at > '@{activity('get last updated').output.firstRow.updated_at}'",
+							"value": "select user_id,\nuser_name,\ncountry,\nsubscription_type,\nstart_date,\nend_date,\nupdated_at\nfrom dbo.DimUser\nwhere updated_at > '@{activity('get last date').output.value[0].updated_at}'",
 							"type": "Expression"
 						},
 						"queryTimeout": "02:00:00",
@@ -105,17 +106,17 @@
 				},
 				"inputs": [
 					{
-						"referenceName": "AzureSqlDimArtist",
+						"referenceName": "AzureSqlDimUser",
 						"type": "DatasetReference"
 					}
 				],
 				"outputs": [
 					{
-						"referenceName": "dimArtist",
+						"referenceName": "dimUser",
 						"type": "DatasetReference",
 						"parameters": {
 							"file_name": {
-								"value": "@concat('DimArtist',' ',variables('current_timestamp'),'.parquet')",
+								"value": "@concat('DimUser',' ',variables('current_timestamp'),'.parquet')",
 								"type": "Expression"
 							}
 						}
@@ -127,7 +128,7 @@
 				"type": "IfCondition",
 				"dependsOn": [
 					{
-						"activity": "ingestDimArtist",
+						"activity": "ingest DimUser",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -136,12 +137,12 @@
 				"userProperties": [],
 				"typeProperties": {
 					"expression": {
-						"value": "@greater(activity('ingestDimArtist').output.dataRead, 0)",
+						"value": "@greater(activity('ingest DimUser').output.dataRead,0 )",
 						"type": "Expression"
 					},
 					"ifFalseActivities": [
 						{
-							"name": "delete empty data",
+							"name": "clear empty",
 							"type": "Delete",
 							"dependsOn": [],
 							"policy": {
@@ -154,11 +155,11 @@
 							"userProperties": [],
 							"typeProperties": {
 								"dataset": {
-									"referenceName": "dimArtist",
+									"referenceName": "dimUser",
 									"type": "DatasetReference",
 									"parameters": {
 										"file_name": {
-											"value": "@concat('DimArtist',' ',variables('current_timestamp'),'.parquet')",
+											"value": "@concat('DimUser',' ',variables('current_timestamp'),'.parquet')",
 											"type": "Expression"
 										}
 									}
@@ -194,7 +195,7 @@
 									{
 										"type": "Query",
 										"text": {
-											"value": "select max(updated_at) as max_date from dbo.DimArtist",
+											"value": "select max(updated_at) as max_date from dbo.DimUser",
 											"type": "Expression"
 										}
 									}
@@ -228,7 +229,7 @@
 										{
 											"name": "Updated_at",
 											"value": {
-												"value": "@activity('get max date').output.resultSets[0].rows[0].max_date\n\n",
+												"value": "@activity('get max date').output.resultSets[0].rows[0].max_date",
 												"type": "Expression"
 											}
 										}
@@ -255,13 +256,13 @@
 							},
 							"inputs": [
 								{
-									"referenceName": "EmptyArtist",
+									"referenceName": "EmptyUser",
 									"type": "DatasetReference"
 								}
 							],
 							"outputs": [
 								{
-									"referenceName": "AsOfDateArtist",
+									"referenceName": "AsOfDateUser",
 									"type": "DatasetReference"
 								}
 							]
