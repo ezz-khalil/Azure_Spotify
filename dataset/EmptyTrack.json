@@ -1,0 +1,20 @@
+{
+	"name": "EmptyTrack",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "empty.json",
+				"folderPath": "DimTrack/param",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {}
+	}
+}
