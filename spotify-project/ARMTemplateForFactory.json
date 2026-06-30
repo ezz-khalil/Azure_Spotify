@@ -1,0 +1,2552 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "spotify-project"
+		},
+		"AzureDataLakeStorage1_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'AzureDataLakeStorage1'"
+		},
+		"AzureSqlDatabase1_password": {
+			"type": "secureString",
+			"metadata": "Secure string for 'password' of 'AzureSqlDatabase1'"
+		},
+		"AzureDataLakeStorage1_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://spotifylake.dfs.core.windows.net/"
+		},
+		"AzureSqlDatabase1_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "spotifydbserv.database.windows.net"
+		},
+		"AzureSqlDatabase1_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "spotifydb"
+		},
+		"AzureSqlDatabase1_properties_typeProperties_userName": {
+			"type": "string",
+			"defaultValue": "spotifydb"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/incrementalDimArtist')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "get last updated",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "Json2",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						}
+					},
+					{
+						"name": "set timestamp",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "current_timestamp",
+							"value": {
+								"value": "@utcNow()",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ingestDimArtist",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "get last updated",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "set timestamp",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select artist_id,\nartist_name,\ngenre,\ncountry,\nupdated_at\nfrom dbo.DimArtist\nwhere updated_at > '@{activity('get last updated').output.firstRow.updated_at}'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "AzureSqlDimArtist",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "dimArtist",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@concat('DimArtist',' ',variables('current_timestamp'),'.parquet')",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "check data read",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "ingestDimArtist",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('ingestDimArtist').output.dataRead, 0)",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "delete empty data",
+									"type": "Delete",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "dimArtist",
+											"type": "DatasetReference",
+											"parameters": {
+												"file_name": {
+													"value": "@concat('DimArtist',' ',variables('current_timestamp'),'.parquet')",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true,
+											"enablePartitionDiscovery": false
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "get max date",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "select max(updated_at) as max_date from dbo.DimArtist",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "update param",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "get max date",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "JsonSource",
+											"additionalColumns": [
+												{
+													"name": "Updated_at",
+													"value": {
+														"value": "@activity('get max date').output.resultSets[0].rows[0].max_date\n\n",
+														"type": "Expression"
+													}
+												}
+											],
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "JsonReadSettings"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "EmptyArtist",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "AsOfDateArtist",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"current_timestamp": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/Json2')]",
+				"[concat(variables('factoryId'), '/datasets/AzureSqlDimArtist')]",
+				"[concat(variables('factoryId'), '/datasets/dimArtist')]",
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]",
+				"[concat(variables('factoryId'), '/datasets/EmptyArtist')]",
+				"[concat(variables('factoryId'), '/datasets/AsOfDateArtist')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/incrementalDimUser')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "get last date",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "lookupAsofDateUser",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Set current timestamp",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "current_timestamp",
+							"value": {
+								"value": "@utcNow()",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ingest DimUser",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "get last date",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Set current timestamp",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select user_id,\nuser_name,\ncountry,\nsubscription_type,\nstart_date,\nend_date,\nupdated_at\nfrom dbo.DimUser\nwhere updated_at > '@{activity('get last date').output.value[0].updated_at}'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "AzureSqlDimUser",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "dimUser",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@concat('DimUser',' ',variables('current_timestamp'),'.parquet')",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "check data read",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "ingest DimUser",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('ingest DimUser').output.dataRead,0 )",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "clear empty",
+									"type": "Delete",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "dimUser",
+											"type": "DatasetReference",
+											"parameters": {
+												"file_name": {
+													"value": "@concat('DimUser',' ',variables('current_timestamp'),'.parquet')",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true,
+											"enablePartitionDiscovery": false
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "get max date",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "select max(updated_at) as max_date from dbo.DimUser",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "update param",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "get max date",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "JsonSource",
+											"additionalColumns": [
+												{
+													"name": "Updated_at",
+													"value": {
+														"value": "@activity('get max date').output.resultSets[0].rows[0].max_date",
+														"type": "Expression"
+													}
+												}
+											],
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "JsonReadSettings"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "EmptyUser",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "AsOfDateUser",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"current_timestamp": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/lookupAsofDateUser')]",
+				"[concat(variables('factoryId'), '/datasets/AzureSqlDimUser')]",
+				"[concat(variables('factoryId'), '/datasets/dimUser')]",
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]",
+				"[concat(variables('factoryId'), '/datasets/EmptyUser')]",
+				"[concat(variables('factoryId'), '/datasets/AsOfDateUser')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/incrementalIngestFact')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "ingest fact",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "getting last update",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "set timestamp",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select stream_id,\nuser_id,\ntrack_id,\ndate_key,\nlisten_duration,\ndevice_type,\nstream_timestamp\nFROM dbo.FactStream\nwhere stream_timestamp > '@{activity('getting last update').output.value[0].Fact_last_update}'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "AzureSqlFact",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "bronze_fact",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@concat('FactStream',' ',variables('current_timestamp'),'.parquet')",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "getting last update",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "AsOfDate",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "set timestamp",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "current_timestamp",
+							"value": {
+								"value": "@utcNow()",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ifDataRead",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "ingest fact",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('ingest fact').output.dataRead,0)",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "Delet Empty File",
+									"type": "Delete",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "bronze_fact",
+											"type": "DatasetReference",
+											"parameters": {
+												"file_name": {
+													"value": "@concat('FactStream',' ',variables('current_timestamp'),'.parquet')",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true,
+											"enablePartitionDiscovery": false
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "update param file",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "get max date",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "JsonSource",
+											"additionalColumns": [
+												{
+													"name": "Fact_last_update",
+													"value": {
+														"value": "@activity('get max date').output.resultSets[0].rows[0].latest_date",
+														"type": "Expression"
+													}
+												}
+											],
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "JsonReadSettings"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "emptyJson",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "AsOfDate",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									]
+								},
+								{
+									"name": "get max date",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "select max(stream_timestamp) as latest_date from dbo.FactStream",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"current_timestamp": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/AzureSqlFact')]",
+				"[concat(variables('factoryId'), '/datasets/bronze_fact')]",
+				"[concat(variables('factoryId'), '/datasets/AsOfDate')]",
+				"[concat(variables('factoryId'), '/datasets/emptyJson')]",
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ingestDimDate')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "get last date",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "lookuoAsOfDateDimDate",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Set current timestamp",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "current_timestamp",
+							"value": {
+								"value": "@utcNow()",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ingestDimDate",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "get last date",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Set current timestamp",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select date_key,\ndate,\nday,\nmonth,\nyear,\nweekday\nfrom DimDate\nwhere date > '@{activity('get last date').output.value[0].max_date}'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "AzureSqlDimDate",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "dimDate",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@concat('DimDate',' ',variables('current_timestamp'),'.parquet')",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "check date read",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "ingestDimDate",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('ingestDimDate').output.dataRead,0 )",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "Delete empty date",
+									"type": "Delete",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "dimDate",
+											"type": "DatasetReference",
+											"parameters": {
+												"file_name": {
+													"value": "@concat('DimDate',' ',variables('current_timestamp'),'.parquet')",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true,
+											"enablePartitionDiscovery": false
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "get max date",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "select max(date) as max_date from dbo.DimDate",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "update last date",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "get max date",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "JsonSource",
+											"additionalColumns": [
+												{
+													"name": "max_date",
+													"value": {
+														"value": "@activity('get max date').output.resultSets[0].rows[0].max_date",
+														"type": "Expression"
+													}
+												}
+											],
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "JsonReadSettings"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "emptyDate",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "AsofDateDate",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"current_timestamp": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/lookuoAsOfDateDimDate')]",
+				"[concat(variables('factoryId'), '/datasets/AzureSqlDimDate')]",
+				"[concat(variables('factoryId'), '/datasets/dimDate')]",
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]",
+				"[concat(variables('factoryId'), '/datasets/emptyDate')]",
+				"[concat(variables('factoryId'), '/datasets/AsofDateDate')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ingestDimTrack')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "get last updated_at",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "lookupAsOfDateTrack",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Set current timestamp",
+						"type": "SetVariable",
+						"dependsOn": [],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "current timestamp",
+							"value": {
+								"value": "@utcNow()",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ingestDimTrack",
+						"type": "Copy",
+						"dependsOn": [
+							{
+								"activity": "get last updated_at",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Set current timestamp",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select track_id,\ntrack_name,\nartist_id\nalbum_name,\nduration_sec,\nrelease_date,\nupdated_at\n from dbo.DimTrack\n where updated_at > '@{activity('get last updated_at').output.value[0].updated_at}'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"sink": {
+								"type": "ParquetSink",
+								"storeSettings": {
+									"type": "AzureBlobFSWriteSettings"
+								},
+								"formatSettings": {
+									"type": "ParquetWriteSettings"
+								}
+							},
+							"enableStaging": false,
+							"translator": {
+								"type": "TabularTranslator",
+								"typeConversion": true,
+								"typeConversionSettings": {
+									"allowDataTruncation": true,
+									"treatBooleanAsNumber": false
+								}
+							}
+						},
+						"inputs": [
+							{
+								"referenceName": "AzureSqlDimTrack",
+								"type": "DatasetReference",
+								"parameters": {}
+							}
+						],
+						"outputs": [
+							{
+								"referenceName": "dimTrack",
+								"type": "DatasetReference",
+								"parameters": {
+									"file_name": {
+										"value": "@concat('DimTrack',' ',variables('current timestamp'),'.parquet')",
+										"type": "Expression"
+									}
+								}
+							}
+						]
+					},
+					{
+						"name": "check data read",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "ingestDimTrack",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('ingestDimTrack').output.dataRead, 0)",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "delete empty data",
+									"type": "Delete",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"dataset": {
+											"referenceName": "dimTrack",
+											"type": "DatasetReference",
+											"parameters": {
+												"file_name": {
+													"value": "@concat('DimTrack',' ',variables('current timestamp'),'.parquet')",
+													"type": "Expression"
+												}
+											}
+										},
+										"enableLogging": false,
+										"storeSettings": {
+											"type": "AzureBlobFSReadSettings",
+											"recursive": true,
+											"enablePartitionDiscovery": false
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "get max updated at",
+									"type": "Script",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "AzureSqlDatabase1",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "select max(updated_at) as max_updated_at from dbo.DimTrack",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "update last updated_at",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "get max updated at",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "JsonSource",
+											"additionalColumns": [
+												{
+													"name": "updated_at",
+													"value": {
+														"value": "@activity('get max updated at').output.resultSets[0].rows[0].max_updated_at",
+														"type": "Expression"
+													}
+												}
+											],
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											},
+											"formatSettings": {
+												"type": "JsonReadSettings"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "EmptyTrack",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "AsOfDAteTrack",
+											"type": "DatasetReference",
+											"parameters": {}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"variables": {
+					"current timestamp": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/lookupAsOfDateTrack')]",
+				"[concat(variables('factoryId'), '/datasets/AzureSqlDimTrack')]",
+				"[concat(variables('factoryId'), '/datasets/dimTrack')]",
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]",
+				"[concat(variables('factoryId'), '/datasets/EmptyTrack')]",
+				"[concat(variables('factoryId'), '/datasets/AsOfDAteTrack')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/masterBronze')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "ingestFact",
+						"type": "ExecutePipeline",
+						"dependsOn": [],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "incrementalIngestFact",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "ingestDimArtist",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "ingestFact",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "incrementalDimArtist",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "ingestDimTrack",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "ingestDimArtist",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "ingestDimTrack",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "ingestDimUser",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "ingestDimTrack",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "incrementalDimUser",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "ingestDimDate",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "ingestDimUser",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "ingestDimDate",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "factFail",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ingestFact",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestFact').output.pipelineReturnValue}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "artist Fail",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ingestDimArtist",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\"\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimArtist').output.pipelineReturnValue}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "track Fail",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ingestDimTrack",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimTrack').output.pipelineReturnValue}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "userFail",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ingestDimUser",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\"\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimUser').output.pipelineReturnValue}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "date Fail",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "ingestDimDate",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimDate').output.pipelineReturnValue}\n}",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"folder": {
+					"name": "Bronze"
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/incrementalIngestFact')]",
+				"[concat(variables('factoryId'), '/pipelines/incrementalDimArtist')]",
+				"[concat(variables('factoryId'), '/pipelines/ingestDimTrack')]",
+				"[concat(variables('factoryId'), '/pipelines/incrementalDimUser')]",
+				"[concat(variables('factoryId'), '/pipelines/ingestDimDate')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AsOfDAteTrack')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimTrack/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {
+					"type": "object",
+					"properties": {
+						"updated_at": {
+							"type": "string"
+						}
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AsOfDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "FactStream/params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AsOfDateArtist')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimArtist/params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AsOfDateUser')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimUser/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AsofDateDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimDate/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlDimArtist')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlDimDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlDimTrack')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlDimUser')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlFact')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureSqlDatabase1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureSqlDatabase1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/EmptyArtist')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "empty.json",
+						"folderPath": "DimArtist/params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/EmptyTrack')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "empty.json",
+						"folderPath": "DimTrack/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/EmptyUser')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "empty.json",
+						"folderPath": "DimUser/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Json1')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "test.json",
+						"folderPath": "params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Json2')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimArtist/params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {
+					"type": "object",
+					"properties": {
+						"updated_at": {
+							"type": "string"
+						}
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/bronze_fact')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "FactStream/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dimArtist')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "DimArtist/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dimDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "DimDate/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dimTrack')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "DimTrack/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/dimUser')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"file_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().file_name",
+							"type": "Expression"
+						},
+						"folderPath": "DimUser/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/emptyDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "empty.json",
+						"folderPath": "DimDate/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/emptyJson')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "empty.json",
+						"folderPath": "FactStream/params",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/lookuoAsOfDateDimDate')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimDate/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/lookupAsOfDateTrack')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimTrack/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/lookupAsofDateUser')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "AsOfDate.json",
+						"folderPath": "DimUser/param",
+						"fileSystem": "bronze"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/test')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "AzureDataLakeStorage1",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": "DimArtist/data",
+						"fileSystem": "bronze"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/AzureDataLakeStorage1')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureDataLakeStorage1')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('AzureDataLakeStorage1_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('AzureDataLakeStorage1_accountKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/AzureSqlDatabase1')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDatabase",
+				"typeProperties": {
+					"server": "[parameters('AzureSqlDatabase1_properties_typeProperties_server')]",
+					"database": "[parameters('AzureSqlDatabase1_properties_typeProperties_database')]",
+					"encrypt": "mandatory",
+					"trustServerCertificate": false,
+					"authenticationType": "SQL",
+					"userName": "[parameters('AzureSqlDatabase1_properties_typeProperties_userName')]",
+					"password": {
+						"type": "SecureString",
+						"value": "[parameters('AzureSqlDatabase1_password')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}
