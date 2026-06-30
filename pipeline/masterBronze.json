@@ -136,7 +136,7 @@
 						"type": "Expression"
 					},
 					"body": {
-						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestFact').output.pipelineReturnValue}\n}",
+						"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestFact').output.pipelineReturnValue}\"\n}",
 						"type": "Expression"
 					}
 				}
@@ -167,7 +167,7 @@
 						"type": "Expression"
 					},
 					"body": {
-						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimArtist').output.pipelineReturnValue}\n}",
+						"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\"\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimArtist').output.pipelineReturnValue}\"\n}",
 						"type": "Expression"
 					}
 				}
@@ -198,7 +198,7 @@
 						"type": "Expression"
 					},
 					"body": {
-						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimTrack').output.pipelineReturnValue}\n}",
+						"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimTrack').output.pipelineReturnValue}\"\n}",
 						"type": "Expression"
 					}
 				}
@@ -229,7 +229,7 @@
 						"type": "Expression"
 					},
 					"body": {
-						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimUser').output.pipelineReturnValue}\n}",
+						"value": "{\n    \"pipeline name\": \"@{pipeline().Pipeline}\"\",\n    \"pipeline id\" : \"@{pipeline().RunId}\",\n    \"error message\": \"@{activity('ingestDimUser').output.pipelineReturnValue}\"\n}",
 						"type": "Expression"
 					}
 				}
