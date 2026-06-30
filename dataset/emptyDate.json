@@ -1,0 +1,20 @@
+{
+	"name": "emptyDate",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "empty.json",
+				"folderPath": "DimDate/param",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {}
+	}
+}
