@@ -1,0 +1,274 @@
+{
+	"name": "masterBronze",
+	"properties": {
+		"activities": [
+			{
+				"name": "ingestFact",
+				"type": "ExecutePipeline",
+				"dependsOn": [],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "incrementalIngestFact",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "ingestDimArtist",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ingestFact",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "incrementalDimArtist",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "ingestDimTrack",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ingestDimArtist",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "ingestDimTrack",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "ingestDimUser",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ingestDimTrack",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "incrementalDimUser",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "ingestDimDate",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "ingestDimUser",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "ingestDimDate",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true
+				}
+			},
+			{
+				"name": "factFail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ingestFact",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestFact').output.pipelineReturnValue}\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "artist Fail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ingestDimArtist",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimArtist').output.pipelineReturnValue}\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "track Fail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ingestDimTrack",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimTrack').output.pipelineReturnValue}\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "userFail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ingestDimUser",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimUser').output.pipelineReturnValue}\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "date Fail",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "ingestDimDate",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://prod-01.northcentralus.logic.azure.com:443/workflows/39b4c4dfafa943c38dfc4be3a8478058/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=QoPdevoDze19RgQmVkyYHslIttd_gYCB2hW5m1Ph3No",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipeline name\": @{pipeline().Pipeline},\n    \"pipeline id\" : @{pipeline().RunId},\n    \"error message\": @{activity('ingestDimDate').output.pipelineReturnValue}\n}",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"folder": {
+			"name": "Bronze"
+		},
+		"annotations": []
+	}
+}

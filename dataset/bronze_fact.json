@@ -19,7 +19,7 @@
 					"value": "@dataset().file_name",
 					"type": "Expression"
 				},
-				"folderPath": "FactStream",
+				"folderPath": "FactStream/data",
 				"fileSystem": "bronze"
 			},
 			"compressionCodec": "snappy"

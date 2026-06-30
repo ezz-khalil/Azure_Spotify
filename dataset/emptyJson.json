@@ -11,7 +11,7 @@
 			"location": {
 				"type": "AzureBlobFSLocation",
 				"fileName": "empty.json",
-				"folderPath": "params",
+				"folderPath": "FactStream/params",
 				"fileSystem": "bronze"
 			}
 		},

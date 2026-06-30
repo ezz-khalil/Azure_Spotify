@@ -158,7 +158,10 @@
 									"referenceName": "dimTrack",
 									"type": "DatasetReference",
 									"parameters": {
-										"file_name": "@concat('DimTrack',' ',variables('current timestamp'),'.parquet')"
+										"file_name": {
+											"value": "\n@concat('DimTrack',' ',variables('current timestamp'),'.parquet')",
+											"type": "Expression"
+										}
 									}
 								},
 								"enableLogging": false,
