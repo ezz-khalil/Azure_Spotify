@@ -1,0 +1,20 @@
+{
+	"name": "lookuoAsOfDateDimDate",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "AsOfDate.json",
+				"folderPath": "DimDate/param",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {}
+	}
+}

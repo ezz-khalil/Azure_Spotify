@@ -1,0 +1,20 @@
+{
+	"name": "AsOfDateUser",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "AsOfDate.json",
+				"folderPath": "DimUser/param",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {}
+	}
+}

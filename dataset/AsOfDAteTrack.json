@@ -1,0 +1,27 @@
+{
+	"name": "AsOfDAteTrack",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "AsOfDate.json",
+				"folderPath": "DimTrack/param",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {
+			"type": "object",
+			"properties": {
+				"updated_at": {
+					"type": "string"
+				}
+			}
+		}
+	}
+}

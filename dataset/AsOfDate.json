@@ -1,0 +1,20 @@
+{
+	"name": "AsOfDate",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureDataLakeStorage1",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "Json",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": "AsOfDate.json",
+				"folderPath": "FactStream/params",
+				"fileSystem": "bronze"
+			}
+		},
+		"schema": {}
+	}
+}
