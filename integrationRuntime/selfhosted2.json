@@ -1,0 +1,12 @@
+{
+	"name": "selfhosted2",
+	"properties": {
+		"type": "SelfHosted",
+		"typeProperties": {
+			"linkedInfo": {
+				"resourceId": "/subscriptions/a7648be1-6499-480b-b5eb-cad6493ca56a/resourcegroups/ADF_project/providers/Microsoft.DataFactory/factories/adfProjectLearn/integrationruntimes/ezz-selfHosted",
+				"authorizationType": "Rbac"
+			}
+		}
+	}
+}
